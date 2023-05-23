@@ -1,0 +1,97 @@
+Parameters:
+  NameOfService:
+    Description: "The name of service"
+    Type: String
+  InstanceTypeParameter:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+    Description: Enter t2.micro, t2.small, or t2.medium. Default is t2.micro.
+  KeyName:
+    Description: Name of EC2 login key
+    Type: AWS::EC2::KeyPair::KeyName
+
+Mappings:
+  AMIRegionMap:
+    us-east-1:
+      AMI: "ami-053b0d53c279acc90"
+    us-east-2:
+      AMI: "ami-0430580de6244e02e"
+
+Resources:
+  MyInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            apt:
+              wget: []
+              unzip: []
+              git: []
+              apache2: []
+          commands:
+            test:
+              command: "wget https://www.tooplate.com/zip-templates/2117_infinite_loop.zip && unzip -o 2117_infinite_loop.zip && cp -r 2117_infinite_loop/* /var/www/html/"
+          files:
+            /var/www/html/hello.html:
+              content: !Sub |
+                <!DOCTYPE html>
+                <html>
+                <body>
+                <h1>Welcome to CloundFormation.</h1>
+                <p> This site id deployed by CloundFormation.</p>
+                </body>
+                </html>
+          services:
+            sysvinit:
+              apache2:
+                enabled: true
+                ensureRunning: true
+
+    Properties:
+      InstanceType: !Ref InstanceTypeParameter
+      KeyName: !Ref KeyName
+      ImageId: !FindInMap
+        - AMIRegionMap
+        - !Ref AWS::Region
+        - AMI
+      Tags:
+        - Key: "Name"
+          Value: !Ref NameOfService
+      SecurityGroups:
+        - !Ref VprofileSG
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          sudo apt-get update -y
+          sudo apt-get -y install python3-pip
+          mkdir -p /opt/aws/
+          sudo pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+          sudo ln -s /usr/local/init/ubuntu/cfn-hup /etc/init.d/cfn-hup
+          /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource MyInstance --region ${AWS::Region}
+          /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource MyInstance --region ${AWS::Region}
+
+  VprofileSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to client host
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+Outputs:
+  PrintInfo:
+    Value: !GetAtt
+      - MyInstance
+      - PublicDnsName
